@@ -1,0 +1,134 @@
+======1======
+Modo protegido:
+	Modo nativo del procesador, ofrece amplio conjunto de caracteristicas arquitectonicas,
+	flexibilidad de alto rendimiento. Es compatible con versiones anteriores de la base
+	de software existente.
+
+Modo real:
+	Provee el entorno de programacion de un procesador intel 8086, con algunas extensiones.
+
+======2======
+Pasaje de modo real a modo protegido.
+Tendriamos un sistema limnitado que tendria segmentacion simple, no tendria niveles de seguridad.
+Por lo que un usuario tendria acceso directo al hardware comprometiendo al sistema.
+La delimitacion del segmento en memoria que utilizen los programas se verian afectados
+de manera que podrian sobreescribir los programas memoria de otros. No tendriamos multitarea.
+
+
+Particularidades:
+En modo protegido tenemos niveles de seguridad en el cual estaran definidos permisos para cada
+determinado en cada capa. Los sistemas de segmentacion permiten que funciones tienen permitidos
+usar los programas mediante los descriptores de segmentos, en que ring estan, etc. Se delimita
+los espacios de memoria en los que un programa puede actuar, evitando los ingresos en memoria
+no deseados.En modo real tenemos acceso directo al hardware sin reestricciones. 
+
+======3======
+//Los segementos son, ademas, espacios de memoria en los que se los puede segmentar para permisos
+y usos. Estos segmentos deben ser descriptos para que el procesador pueda saber como estan 
+conformados.
+
+gdt:
+	Estructura de datos que contiene descriptores de segmentos
+
+Formato bit a bit:
+	Es la manera en la que dependiendo de las caracteristicas de los espacios en memoria
+	(cada uno de sus flags) se va a poder saber en que segmento se encuentra y que tipo
+	de funciones permite, que nivel de privelegio tiene, etc.
+
+Explicacion de algunos flags y campos:
+	Limit: Especifica el tamano del segmento y dependiendo de como este definido el flag G
+	va el procesador lo va interpretar de dos formas distintas.
+		_Si el flag G es cero entonces el tamano del segmento va a tener un rango de
+		1B a 1MB, incrementando en 1B
+		_Si el flag G es uno entonces el tamano del segmento va a tener un rango de 
+		4KB a 4GB incrementando 4KB
+	Dependiendo del tipo de segmento, si es "expand up" o "expand down" va a usarlo de dos
+	formas distintas.
+			
+	Base: Definen la ubicacion dentro del segmento, unificando los registros base se forma
+	un valor de 32 bits
+
+	G: Si esta activado el limite de segmento se interpreta en unidades de 4KB sino lo hace
+	en unidades de byte
+
+	P: Indica si el segemento esta presente en memoria.
+
+	DPL: Especifica el nivel de privilegio del segmento, en un rango de 0-3 siendo 0 el 
+	mas privilegiado.
+
+	S: Especifica si el selector de descriptor de segmento es para un segmento de sistema
+	o segmento de codigo o dato.
+
+======4======
+	Combinacion: 1010
+
+======5======
+	redireccionar 817MB -> 1MB = 1024 * 1024 B
+	
+======10======
+    LGDT: Instruccion que nos permite cargar una direccion de memoria a la gdt, dependiendo
+    del tamano del operando vamos a tener un valor de limite y de base distinto.
+        _Si el tamano del operando es de 32 bits: Se cargan en el registro un limite
+        de 16 bits (Los dos bytes inferiores del operando de 6 bytes) y una direccion
+        base de 32 bits (Los 4 bytes superiores del operando).
+        _Si el tamano del operando es de 16 bits: Se cargan en el registro limite de
+        16 bits, lo mismo. Y para el registro base se cargaran los 24 bits superiores,
+        lo demas se rellenara con ceros.
+        Esta direccion carga direccion lineal y un limite en modo protegido y es
+        unicamente usada por el software del Sistema operativo. Se suelen ejecutar
+        en modo de direccion real para permitir la inicializacion del procesador antes de
+        pasar a modo protegido.
+    
+    LGDT_EXPLICACION: Es la instruccion que nos permite levantar nuestra GDT.
+
+    _En gdt.h tenemos declarada la variable GDT_DESC, este struct esta conformado por
+    gdt_lenght (Tamano de la GDT) y gdt_addr (Direccion de donde comienza). Luego en
+    gdt.c tenemos definida la variable GDT_DESC con gdt, la cual recibe el tamano
+    y luego su direccion de memoria. El codigo se inicializa en el comienzo del arreglo
+    gdt.
+
+    ======13======
+    Debemos modificar el registro de control CR0 para poder hacer el cambio a modo protegido.
+    Lo debemos hacer mediante la instruccion MOV CR0.
+
+    ======15======
+    El JMP correcto seria:
+        JMP ptr16:32 ---> Jump far, absolute indirect, address given in m16:32.
+    Como selector de segmento usaria el code segment nivel 0.
+    [GDT_DESC + GDT_IDEX_CODE_0]
+
+    ======17======
+    Sabiendo —Reload segment registers DS, SS, ES, FS, and GS. If the ES, FS, and/or
+    GS registers are not going to be used, load them with a null selector. 
+    Cargaremos los registros de segmento con GDT_DATA_0_SEL 
+
+
+    ======21======
+    La pantalla va a ser un arreglo de 50 filas x 80 columnas. En cada posición del arreglo
+    va a haber 2 bytes que representan a una celda de la pantalla
+
+    _¿Qué tamaño deberá tener considerando lo descrito en el párrafo anterior?
+        2 * 50 * 80 = 8000B.
+        Como el tamano es chico podemos redireccionar con 1MB, es decir Granurabilidad 0.
+        Luego como el area solo va a ser utilizada por el kernel (sistema) vamos a tener
+        el flag S en 1 y dpl en 0 (nivel 0). 
+    _Si el buffer de la pantalla comienza en 0x000B8000, piensen cuál debería ser la base
+    y el límite 
+        La base debe empezar en la direccion exacta y el limite va a ser el tamano que ocupa
+        menos uno por ser inclusivo, en este caso 7999B. Estamos usando Granurabilidad en 0
+        por lo cual el limite se mide en bytes y no en espacios de 4KB.
+
+======22======
+    ¿Qué creen que hace el método screen_draw_box?
+        _La funcion castea la posicion de memoria VIDEO a un puntero a array de tipo ca para lograr 
+        llenar la estructura de tipo ca con caracter y atributo en cada posicion del array.
+        Lo hace mediante dos instrucciones for, que van rellenando en cada celda con el 
+        correspondiente caracter y atributo (struct)
+
+    ¿Cómo hace para acceder a la pantalla?
+        _Castea la direccion de memoria a un arreglo bidimensional y por lo tanto puede hacer p[col][fil]
+        y empieza a rellenar celda por celda.
+
+    ¿Qué estructura usa para representar cada carácter de la pantalla y cuanto ocupa en memoria?
+        _Usa un array de estructuras ca. Ocupa en memoria 2 * 80 * 50 = 8000B. 
+        2 por el tamano de cada celda (struct), 80 por columnas, 50 por filas. 
